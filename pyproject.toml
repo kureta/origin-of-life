@@ -1,0 +1,24 @@
+[tool.poetry]
+name = "origin-of-life"
+version = "0.1.0"
+description = ""
+authors = ["kureta <skureta@gmail.com>"]
+license = "GPL"
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.12"
+torch = {version = "^2.4.0+cpu", source = "pytorch-cpu-src"}
+torchvision = {version = "^0.19.0+cpu", source = "pytorch-cpu-src"}
+numpy = "^2.1.0"
+raylib = "^5.0.0.3"
+
+
+[[tool.poetry.source]]
+name = "pytorch-cpu-src"
+url = "https://download.pytorch.org/whl/cpu"
+priority = "explicit"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
