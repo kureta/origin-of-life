@@ -3,7 +3,10 @@ import torch.nn.functional as F
 import pyray as pr
 
 
-def snake_game_pad(input_tensor, pad_width):
+torch.autograd.set_grad_enabled(False)
+
+
+def torus_pad(input_tensor, pad_width):
     padded_tensor = torch.cat(
         [input_tensor[:, -pad_width:, :], input_tensor, input_tensor[:, :pad_width, :]],
         dim=1,
@@ -32,7 +35,7 @@ class App:
         self.state = torch.randint(0, 2, (100, 100, 1), dtype=torch.uint8)
 
     def count_neighbors(self):
-        state = snake_game_pad(self.state, 1)
+        state = torus_pad(self.state, 1)
         return (
             F.conv2d(
                 state.permute(2, 0, 1).unsqueeze(0),
@@ -45,7 +48,7 @@ class App:
 
     def update_state(self):
         neighbor_count = self.count_neighbors()
-        state = snake_game_pad(self.state, 1)
+        state = torus_pad(self.state, 1)
         self.state = rule(state, neighbor_count).to(torch.uint8)[1:-1, 1:-1, :]
 
     def update_texture(self):
@@ -67,8 +70,8 @@ class App:
         self.update()
         pr.begin_drawing()
         pr.clear_background(pr.WHITE)
-        pr.draw_fps(190, 200)
         pr.draw_texture(self.tex, 0, 0, pr.WHITE)
+        pr.draw_fps(190, 200)
         pr.end_drawing()
         # sleep(1)
 
