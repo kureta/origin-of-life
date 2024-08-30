@@ -37,6 +37,8 @@ def rule(state, neighbor_count):
 #       and identify edges with opposite inner edges
 # TODO: either modify `state` property in-place or return new state. Do not mix both.
 
+SIZE = 128
+
 
 class App:
     def __init__(self) -> None:
@@ -47,7 +49,7 @@ class App:
         self.initialize_state()
 
     def initialize_state(self):
-        self.state = torch.randint(0, 2, (1, 1, 100, 100), dtype=torch.uint8)
+        self.state = torch.randint(0, 2, (1, 1, SIZE, SIZE), dtype=torch.uint8)
 
     def count_neighbors(self):
         state = torus_pad(self.state, 1)
@@ -61,8 +63,8 @@ class App:
         img_data = (self.state.squeeze() * 255).numpy()
         img = pr.Image(
             img_data,
-            100,
-            100,
+            SIZE,
+            SIZE,
             1,
             pr.PixelFormat.PIXELFORMAT_UNCOMPRESSED_GRAYSCALE,
         )
