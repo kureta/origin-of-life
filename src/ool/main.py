@@ -27,11 +27,19 @@ def rule(state, neighbor_count):
     return (neighbor_count == 3) | ((state == 1) & (neighbor_count == 2))
 
 
+# TODO: kernel has dimensions batch, in_channels, out_channels, height, width
+# TODO: state has dimensions batch, in_channels, height, width
+# TODO: instead of using torus_pad treat state size as one larger than the actual size
+#       and identify edges with inner edges
+# TODO: either modify `state` property in-place or return new state. Do not mix both.
+
+
 class App:
     def __init__(self) -> None:
         pr.set_trace_log_level(pr.TraceLogLevel.LOG_WARNING)
         pr.init_window(800, 450, "Hello")
-        self.kernel = torch.tensor([[1, 1, 1], [1, 0, 1], [1, 1, 1]], dtype=torch.uint8)
+        self.kernel = torch.ones(3, 3, dtype=torch.uint8)
+        self.kernel[1, 1] = 0
         self.state = torch.randint(0, 2, (100, 100, 1), dtype=torch.uint8)
 
     def count_neighbors(self):
@@ -40,7 +48,6 @@ class App:
             F.conv2d(
                 state.permute(2, 0, 1).unsqueeze(0),
                 self.kernel.unsqueeze(0).unsqueeze(0),
-                padding=1,
             )
             .squeeze(0)
             .permute(1, 2, 0)
@@ -48,8 +55,7 @@ class App:
 
     def update_state(self):
         neighbor_count = self.count_neighbors()
-        state = torus_pad(self.state, 1)
-        self.state = rule(state, neighbor_count).to(torch.uint8)[1:-1, 1:-1, :]
+        self.state = rule(self.state, neighbor_count).to(torch.uint8)
 
     def update_texture(self):
         img_data = (self.state * 255).numpy()
