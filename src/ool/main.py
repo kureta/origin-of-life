@@ -33,8 +33,6 @@ def rule(state, neighbor_count):
 
 # NOTE: kernel has dimensions in_channels, out_channels, height, width
 # NOTE: state has dimensions batch, in_channels, height, width
-# TODO: instead of using torus_pad treat state size as one larger than the actual size
-#       and identify edges with opposite inner edges
 # TODO: either modify `state` property in-place or return new state. Do not mix both.
 
 SIZE = 128
