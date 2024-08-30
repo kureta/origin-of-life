@@ -1,7 +1,7 @@
+import pyray as pr
 import torch
 import torch.nn.functional as F
-import pyray as pr
-
+from torch.distributions import Bernoulli
 
 torch.autograd.set_grad_enabled(False)
 
@@ -31,11 +31,17 @@ def rule(state, neighbor_count):
     return (neighbor_count == 3) | ((state == 1) & (neighbor_count == 2))
 
 
-# NOTE: kernel has dimensions in_channels, out_channels, height, width
+# NOTE: kernel has dimensions out_channels, in_channels, height, width
 # NOTE: state has dimensions batch, in_channels, height, width
 # TODO: either modify `state` property in-place or return new state. Do not mix both.
+# TODO: when simulating life, take pairs, pad, and swap borders of the pairs.
 
+# TODO: list of adjustable parameters:
+#       - grid size
+#       - mutation rate
+#       - alive cell probability during initialization
 SIZE = 128
+ALIVE_PROB = 0.07
 
 
 class App:
@@ -44,10 +50,14 @@ class App:
         pr.init_window(800, 450, "Hello")
         self.kernel = torch.ones(1, 1, 3, 3, dtype=torch.uint8)
         self.kernel[..., 1, 1] = 0
+        self.distribution = Bernoulli(ALIVE_PROB)
+        self.state: torch.Tensor
         self.initialize_state()
 
     def initialize_state(self):
-        self.state = torch.randint(0, 2, (1, 1, SIZE, SIZE), dtype=torch.uint8)
+        self.state = self.distribution.sample(torch.Size([1, 1, SIZE, SIZE])).to(
+            torch.uint8
+        )
 
     def count_neighbors(self):
         state = torus_pad(self.state, 1)
