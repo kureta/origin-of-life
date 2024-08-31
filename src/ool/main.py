@@ -6,50 +6,45 @@ from torch.distributions import Bernoulli
 torch.autograd.set_grad_enabled(False)
 
 
-def torus_pad(input_tensor, pad_width):
-    padded_tensor = torch.cat(
-        [
-            input_tensor[..., -pad_width:, :],
-            input_tensor,
-            input_tensor[..., :pad_width, :],
-        ],
-        dim=-2,
-    )
-    padded_tensor = torch.cat(
-        [
-            padded_tensor[..., -pad_width:],
-            padded_tensor,
-            padded_tensor[..., :pad_width],
-        ],
-        dim=-1,
-    )
-
-    return padded_tensor
-
-
 # swaps outer edges of 2 channels of a tensor
 def swap_edges(state):
     (
-        state[:, 0, 0, :],
-        state[:, 1, 0, :],
         state[:, 0, -1, :],
-        state[:, 1, -1, :],
-        state[:, 0, :, 0],
-        state[:, 1, :, 0],
+        state[:, 0, 0, :],
         state[:, 0, :, -1],
+        state[:, 0, :, 0],
+        state[:, 1, -1, :],
+        state[:, 1, 0, :],
         state[:, 1, :, -1],
+        state[:, 1, :, 0],
     ) = (
-        state[:, 1, 0, :],
-        state[:, 0, 0, :],
         state[:, 1, -1, :],
-        state[:, 0, -1, :],
-        state[:, 1, :, 0],
-        state[:, 0, :, 0],
+        state[:, 1, 0, :],
         state[:, 1, :, -1],
+        state[:, 1, :, 0],
+        state[:, 0, -1, :],
+        state[:, 0, 0, :],
         state[:, 0, :, -1],
+        state[:, 0, :, 0],
     )
 
     return state
+
+
+def place_glider(grid, ch, x, y):
+    # Define the glider pattern in a 3x3 tensor
+    glider = torch.tensor([[0, 1, 0], [0, 0, 1], [1, 1, 1]], dtype=torch.float32)
+
+    _, _, height, width = grid.shape
+
+    # Ensure coordinates are valid
+    if x < 0 or y < 0 or x + 3 > width or y + 3 > height:
+        raise ValueError("Glider placement is out of bounds.")
+
+    # Place the glider in the specified location
+    grid[0, ch, y : y + 3, x : x + 3] = glider
+
+    return grid
 
 
 def rule(state, neighbor_count):
@@ -65,7 +60,7 @@ def rule(state, neighbor_count):
 #       - mutation rate
 #       - alive cell probability during initialization
 SIZE = 128
-ALIVE_PROB = 0.07
+ALIVE_PROB = 0.1
 
 
 class App:
@@ -80,13 +75,16 @@ class App:
         self.tex = []
 
     def initialize_state(self):
-        self.state = self.distribution.sample(torch.Size([1, 2, SIZE, SIZE])).to(
-            torch.uint8
-        )
+        # self.state = self.distribution.sample(torch.Size([1, 2, SIZE, SIZE])).to(
+        #     torch.uint8
+        # )
+        self.state = torch.zeros(1, 2, SIZE, SIZE, dtype=torch.uint8)
+        self.state = place_glider(self.state, 0, SIZE - 8, SIZE - 16)
+        self.state = place_glider(self.state, 1, SIZE - 13, SIZE - 7)
 
     def count_neighbors(self):
-        state = torus_pad(self.state, 1)
-        state = swap_edges(state)
+        state = F.pad(self.state, (1, 1, 1, 1), mode="circular")
+        # state = swap_edges(state)
         return F.conv2d(state, self.kernel, groups=2)
 
     def update_state(self):
@@ -119,6 +117,7 @@ class App:
         pr.end_drawing()
 
     def start(self):
+        pr.set_target_fps(24)
         while not pr.window_should_close():
             if pr.is_key_released(pr.KeyboardKey.KEY_SPACE):
                 self.initialize_state()
