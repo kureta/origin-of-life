@@ -6,31 +6,6 @@ from torch.distributions import Bernoulli
 torch.autograd.set_grad_enabled(False)
 
 
-# swaps outer edges of 2 channels of a tensor
-def swap_edges(state):
-    (
-        state[:, 0, -1, :],
-        state[:, 0, 0, :],
-        state[:, 0, :, -1],
-        state[:, 0, :, 0],
-        state[:, 1, -1, :],
-        state[:, 1, 0, :],
-        state[:, 1, :, -1],
-        state[:, 1, :, 0],
-    ) = (
-        state[:, 1, -1, :],
-        state[:, 1, 0, :],
-        state[:, 1, :, -1],
-        state[:, 1, :, 0],
-        state[:, 0, -1, :],
-        state[:, 0, 0, :],
-        state[:, 0, :, -1],
-        state[:, 0, :, 0],
-    )
-
-    return state
-
-
 def place_glider(grid, ch, x, y):
     # Define the glider pattern in a 3x3 tensor
     glider = torch.tensor([[0, 1, 0], [0, 0, 1], [1, 1, 1]], dtype=torch.float32)
@@ -47,8 +22,33 @@ def place_glider(grid, ch, x, y):
     return grid
 
 
+def paired_klein_bottle_padding(x):
+    """
+    life evolves in [batch, 2, height, width] tensor
+    lives are randomly paired, each channel represents a pair
+    we are padding the entire batch of pairs of lives
+    the padding scheme used is equivalent to joining the pairs on one edge,
+    then joining the opposing edges to form a cylinder
+    and then twisting/joining the top and bottom to form a klein bottle
+    the twist is so that there is more surface area between the pairs
+    if we don't twist each one will be joined to itself on the top and bottom
+    """
+    left = x[..., :, -1:].flip(1)
+    right = x[..., :, :1].flip(1)
+    bottom = torch.cat(
+        (x[..., -1:, :1], x[..., -1:, :].flip(1, -1), x[..., -1:, -1:]), dim=3
+    )
+    top = torch.cat(
+        (x[..., :1, :1], x[..., :1, 0:].flip(1, -1), x[..., :1, -1:]), dim=3
+    )
+    x = torch.cat((left, x, right), dim=3)
+    x = torch.cat((bottom, x, top), dim=2)
+
+    return x
+
+
 def rule(state, neighbor_count):
-    return (neighbor_count == 3) | ((state == 1) & (neighbor_count == 2))
+    return (neighbor_count == 3) | (state & (neighbor_count == 2))
 
 
 # NOTE: kernel has dimensions out_channels, in_channels, height, width
@@ -59,8 +59,8 @@ def rule(state, neighbor_count):
 #       - grid size
 #       - mutation rate
 #       - alive cell probability during initialization
-SIZE = 128
-ALIVE_PROB = 0.1
+SIZE = 32
+ALIVE_PROB = 0.07
 
 
 class App:
@@ -75,16 +75,12 @@ class App:
         self.tex = []
 
     def initialize_state(self):
-        # self.state = self.distribution.sample(torch.Size([1, 2, SIZE, SIZE])).to(
-        #     torch.uint8
-        # )
-        self.state = torch.zeros(1, 2, SIZE, SIZE, dtype=torch.uint8)
-        self.state = place_glider(self.state, 0, SIZE - 8, SIZE - 16)
-        self.state = place_glider(self.state, 1, SIZE - 13, SIZE - 7)
+        self.state = self.distribution.sample(torch.Size([1024, 2, SIZE, SIZE])).to(
+            torch.uint8
+        )
 
     def count_neighbors(self):
-        state = F.pad(self.state, (1, 1, 1, 1), mode="circular")
-        # state = swap_edges(state)
+        state = paired_klein_bottle_padding(self.state)
         return F.conv2d(state, self.kernel, groups=2)
 
     def update_state(self):
@@ -93,7 +89,7 @@ class App:
 
     def update_texture(self):
         self.tex.clear()
-        for img_data in self.state.squeeze().numpy():
+        for img_data in self.state[0].numpy():
             img = pr.Image(
                 img_data * 255,
                 SIZE,
@@ -117,7 +113,6 @@ class App:
         pr.end_drawing()
 
     def start(self):
-        pr.set_target_fps(24)
         while not pr.window_should_close():
             if pr.is_key_released(pr.KeyboardKey.KEY_SPACE):
                 self.initialize_state()
