@@ -59,8 +59,14 @@ def rule(state, neighbor_count):
 #       - grid size
 #       - mutation rate
 #       - alive cell probability during initialization
-SIZE = 32
-ALIVE_PROB = 0.07
+SIZE = 64
+ALIVE_PROB = 0.05
+N_ITER = 128
+MUTATION_RATE = 0.01
+
+
+def shuffle_batch(x):
+    return x[torch.randperm(x.size(0), device=x.device), ...]
 
 
 class App:
@@ -73,11 +79,20 @@ class App:
         self.state: torch.Tensor
         self.initialize_state()
         self.tex = []
+        self.iter = 0
 
     def initialize_state(self):
-        self.state = self.distribution.sample(torch.Size([1024, 2, SIZE, SIZE])).to(
+        self.state = self.distribution.sample(torch.Size([1024, 1, SIZE, SIZE])).to(
             torch.uint8
         )
+
+    def shuffle_and_pair(self):
+        self.state = shuffle_batch(self.state)
+        self.state = self.state.view(-1, 2, SIZE, SIZE)
+
+    def mutate(self):
+        mask = torch.rand(self.state.size()) < MUTATION_RATE
+        self.state = self.state ^ mask
 
     def count_neighbors(self):
         state = paired_klein_bottle_padding(self.state)
@@ -104,6 +119,13 @@ class App:
         self.update_texture()
 
     def loop(self):
+        if self.iter % N_ITER == 0:
+            if self.state.shape[1] == 2:
+                self.state = self.state.view(-1, SIZE, SIZE)
+                self.mutate()
+            self.shuffle_and_pair()
+        self.iter += 1
+
         self.update()
         pr.begin_drawing()
         pr.clear_background(pr.WHITE)
