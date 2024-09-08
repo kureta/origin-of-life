@@ -6,22 +6,6 @@ from torch.distributions import Bernoulli
 torch.autograd.set_grad_enabled(False)
 
 
-def place_glider(grid, ch, x, y):
-    # Define the glider pattern in a 3x3 tensor
-    glider = torch.tensor([[0, 1, 0], [0, 0, 1], [1, 1, 1]], dtype=torch.float32)
-
-    _, _, height, width = grid.shape
-
-    # Ensure coordinates are valid
-    if x < 0 or y < 0 or x + 3 > width or y + 3 > height:
-        raise ValueError("Glider placement is out of bounds.")
-
-    # Place the glider in the specified location
-    grid[0, ch, y : y + 3, x : x + 3] = glider
-
-    return grid
-
-
 def paired_klein_bottle_padding(x):
     """
     life evolves in [batch, 2, height, width] tensor
@@ -38,10 +22,19 @@ def paired_klein_bottle_padding(x):
     bottom = torch.cat(
         (x[..., -1:, :1], x[..., -1:, :].flip(1, -1), x[..., -1:, -1:]), dim=3
     )
-    top = torch.cat(
-        (x[..., :1, :1], x[..., :1, 0:].flip(1, -1), x[..., :1, -1:]), dim=3
-    )
+    top = torch.cat((x[..., :1, :1], x[..., :1, :].flip(1, -1), x[..., :1, -1:]), dim=3)
     x = torch.cat((left, x, right), dim=3)
+    x = torch.cat((bottom, x, top), dim=2)
+
+    return x
+
+
+def paired_torus_padding(x):
+    left = x[..., :, -1:].flip(1)
+    right = x[..., :, :1].flip(1)
+    x = torch.cat((left, x, right), dim=3)
+    bottom = x[..., -1:, :]
+    top = x[..., :1, :]
     x = torch.cat((bottom, x, top), dim=2)
 
     return x
@@ -59,11 +52,16 @@ def rule(state, neighbor_count):
 #       - grid size
 #       - mutation rate
 #       - alive cell probability during initialization
+#       - number of iteration for each generation
 SIZE = 32
-ALIVE_PROB = 0.04
+ALIVE_PROB = 0.07
 N_ITER = 128
 MUTATION_RATE = 0.001
 SCALE = 8
+
+DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+# uint8 is faster on CPU, but not supported on GPU
+DTYPE = torch.float32 if DEVICE == "cuda" else torch.uint8
 
 
 def shuffle_batch(x):
@@ -74,7 +72,7 @@ class App:
     def __init__(self) -> None:
         pr.set_trace_log_level(pr.TraceLogLevel.LOG_WARNING)
         pr.init_window(800, 450, "Hello")
-        self.kernel = torch.ones(2, 1, 3, 3, dtype=torch.float32).to("cuda")
+        self.kernel = torch.ones(2, 1, 3, 3, dtype=DTYPE).to(DEVICE)
         self.kernel[..., 1, 1] = 0
         self.distribution = Bernoulli(ALIVE_PROB)
         self.state: torch.Tensor
@@ -87,8 +85,8 @@ class App:
     def initialize_state(self):
         self.state = (
             self.distribution.sample(torch.Size([1024, 1, SIZE, SIZE]))
-            .to(torch.float32)
-            .to("cuda")
+            .to(DTYPE)
+            .to(DEVICE)
         )
 
     def shuffle_and_pair(self):
@@ -96,17 +94,17 @@ class App:
         self.state = self.state.view(-1, 2, SIZE, SIZE)
 
     def mutate(self):
-        mask = torch.rand(self.state.size(), device="cuda") < MUTATION_RATE
+        mask = torch.rand(self.state.size(), device=DEVICE) < MUTATION_RATE
         # XORing state with mask will flip the bits where mask is True
         self.state = self.state ^ mask
 
     def count_neighbors(self):
-        state = paired_klein_bottle_padding(self.state)
+        state = paired_torus_padding(self.state)
         return F.conv2d(state, self.kernel, groups=2)
 
     def update_state(self):
         neighbor_count = self.count_neighbors()
-        self.state = rule(self.state, neighbor_count).to(torch.float32)
+        self.state = rule(self.state, neighbor_count).to(DTYPE)
 
     def update_texture(self):
         self.tex.clear()
