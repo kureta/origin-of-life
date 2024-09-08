@@ -48,7 +48,7 @@ def paired_klein_bottle_padding(x):
 
 
 def rule(state, neighbor_count):
-    return (neighbor_count == 3) | (state & (neighbor_count == 2))
+    return (neighbor_count == 3) | ((state == 1) & (neighbor_count == 2))
 
 
 # NOTE: kernel has dimensions out_channels, in_channels, height, width
@@ -59,10 +59,11 @@ def rule(state, neighbor_count):
 #       - grid size
 #       - mutation rate
 #       - alive cell probability during initialization
-SIZE = 64
-ALIVE_PROB = 0.05
+SIZE = 32
+ALIVE_PROB = 0.04
 N_ITER = 128
-MUTATION_RATE = 0.01
+MUTATION_RATE = 0.001
+SCALE = 8
 
 
 def shuffle_batch(x):
@@ -73,17 +74,21 @@ class App:
     def __init__(self) -> None:
         pr.set_trace_log_level(pr.TraceLogLevel.LOG_WARNING)
         pr.init_window(800, 450, "Hello")
-        self.kernel = torch.ones(2, 1, 3, 3, dtype=torch.uint8)
+        self.kernel = torch.ones(2, 1, 3, 3, dtype=torch.float32).to("cuda")
         self.kernel[..., 1, 1] = 0
         self.distribution = Bernoulli(ALIVE_PROB)
         self.state: torch.Tensor
         self.initialize_state()
         self.tex = []
         self.iter = 0
+        self.toggle = False
+        self.generation = 0
 
     def initialize_state(self):
-        self.state = self.distribution.sample(torch.Size([1024, 1, SIZE, SIZE])).to(
-            torch.uint8
+        self.state = (
+            self.distribution.sample(torch.Size([1024, 1, SIZE, SIZE]))
+            .to(torch.float32)
+            .to("cuda")
         )
 
     def shuffle_and_pair(self):
@@ -91,7 +96,7 @@ class App:
         self.state = self.state.view(-1, 2, SIZE, SIZE)
 
     def mutate(self):
-        mask = torch.rand(self.state.size()) < MUTATION_RATE
+        mask = torch.rand(self.state.size(), device="cuda") < MUTATION_RATE
         self.state = self.state ^ mask
 
     def count_neighbors(self):
@@ -100,11 +105,11 @@ class App:
 
     def update_state(self):
         neighbor_count = self.count_neighbors()
-        self.state = rule(self.state, neighbor_count).to(torch.uint8)
+        self.state = rule(self.state, neighbor_count).to(torch.float32)
 
     def update_texture(self):
         self.tex.clear()
-        for img_data in self.state[0].numpy():
+        for img_data in self.state[0].cpu().numpy().astype("uint8"):
             img = pr.Image(
                 img_data * 255,
                 SIZE,
@@ -120,9 +125,10 @@ class App:
 
     def loop(self):
         if self.iter % N_ITER == 0:
+            self.generation += 1
             if self.state.shape[1] == 2:
                 self.state = self.state.view(-1, SIZE, SIZE)
-                self.mutate()
+                # self.mutate()
             self.shuffle_and_pair()
         self.iter += 1
 
@@ -130,14 +136,25 @@ class App:
         pr.begin_drawing()
         pr.clear_background(pr.WHITE)
         for idx, tex in enumerate(self.tex):
-            pr.draw_texture(tex, SIZE * idx, 0, pr.WHITE)
-        pr.draw_fps(190, 200)
+            scaled_size = SIZE * SCALE
+            source = pr.Rectangle(SIZE * idx, 0, SIZE, SIZE)
+            target = pr.Rectangle(scaled_size * idx, 0, scaled_size, scaled_size)
+            pr.draw_texture_pro(tex, source, target, pr.Vector2(0, 0), 0, pr.WHITE)
+        pr.draw_fps(600, 50)
+        pr.draw_text(
+            f"Generation: {self.generation}",
+            600,
+            10,
+            20,
+            pr.BLACK,
+        )
         pr.end_drawing()
 
     def start(self):
         while not pr.window_should_close():
             if pr.is_key_released(pr.KeyboardKey.KEY_SPACE):
-                self.initialize_state()
+                self.toggle = not self.toggle
+                pr.set_target_fps(8 if self.toggle else 99999)
             self.loop()
         pr.close_window()
 
