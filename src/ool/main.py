@@ -97,6 +97,7 @@ class App:
 
     def mutate(self):
         mask = torch.rand(self.state.size(), device="cuda") < MUTATION_RATE
+        # XORing state with mask will flip the bits where mask is True
         self.state = self.state ^ mask
 
     def count_neighbors(self):
