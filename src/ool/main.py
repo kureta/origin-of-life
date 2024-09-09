@@ -65,7 +65,7 @@ DTYPE = torch.float32 if DEVICE == "cuda" else torch.uint8
 
 
 def shuffle_batch(x):
-    return x[torch.randperm(x.size(0), device=x.device), ...]
+    return x[torch.randperm(x.shape[0], device=x.device), ...]
 
 
 class App:
